@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegStatic = require('ffmpeg-static');
 const ytdl = require('ytdl-core');
 const { DownloaderHelper } = require('node-downloader-helper');
 const fs = require('fs').promises;
@@ -14,10 +15,21 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Configurar FFmpeg
-ffmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
+ffmpeg.setFfmpegPath(ffmpegStatic);
 
 // Configurar multer para uploads
 const upload = multer({ dest: 'uploads/' });
+
+// Servir arquivos estáticos da pasta public
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Servir arquivos da pasta uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Rota para a página inicial
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Limpar diretório de uploads na inicialização
 const clearUploads = async () => {
@@ -38,7 +50,6 @@ app.use(rateLimit({
     max: 100,
 }));
 app.use(express.json());
-app.use(express.static('uploads'));
 
 // Upload de arquivo
 app.post('/upload', upload.single('file'), async (req, res) => {
@@ -74,7 +85,7 @@ app.post('/download-social', async (req, res) => {
                 .toFormat(format)
                 .save(outputPath)
                 .on('end', () => {
-                    res.json({ url: `/${path.basename(outputPath)}` });
+                    res.json({ url: `/uploads/${path.basename(outputPath)}` });
                 })
                 .on('error', err => {
                     res.status(400).json({ error: err.message });
@@ -86,7 +97,7 @@ app.post('/download-social', async (req, res) => {
                     .toFormat(format)
                     .save(outputPath)
                     .on('end', () => {
-                        res.json({ url: `/${path.basename(outputPath)}` });
+                        res.json({ url: `/uploads/${path.basename(outputPath)}` });
                     })
                     .on('error', err => {
                         res.status(400).json({ error: err.message });
@@ -106,12 +117,12 @@ app.post('/enhance-audio', async (req, res) => {
     const outputPath = path.join('uploads', `${fileId}_enhanced.mp3`);
 
     try {
-        ffmpeg(path.join('uploads', inputPath))
+        ffmpeg(path.join('Uploads', inputPath))
             .audioFilter('afftdn') // Redução de ruído
             .toFormat('mp3')
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/${path.basename(outputPath)}` });
+                res.json({ url: `/uploads/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -124,12 +135,12 @@ app.post('/enhance-audio', async (req, res) => {
 // Divisão de áudio
 app.post('/split-audio', async (req, res) => {
     const { fileId, duration } = req.body;
-    const inputPath = (await fs.readdir('uploads')).find(f => f.startsWith(fileId));
+    const inputPath = (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
     const segments = [];
 
     try {
         const metadata = await new Promise((resolve, reject) => {
-            ffmpeg.ffprobe(path.join('uploads', inputPath), (err, metadata) => {
+            ffmpeg.ffprobe(path.join('Uploads', inputPath), (err, metadata) => {
                 if (err) return reject(err);
                 resolve(metadata);
             });
@@ -137,9 +148,9 @@ app.post('/split-audio', async (req, res) => {
         const totalDuration = metadata.format.duration;
         for (let i = 0; i < totalDuration; i += duration) {
             const segmentId = uuidv4();
-            const segmentPath = path.join('uploads', `${fileId}_segment_${i}.mp3`);
+            const segmentPath = path.join('Uploads', `${fileId}_segment_${i}.mp3`);
             await new Promise((resolve, reject) => {
-                ffmpeg(path.join('uploads', inputPath))
+                ffmpeg(path.join('Uploads', inputPath))
                     .setStartTime(i)
                     .setDuration(duration)
                     .toFormat('mp3')
@@ -158,15 +169,15 @@ app.post('/split-audio', async (req, res) => {
 // Conversão de formato
 app.post('/convert', async (req, res) => {
     const { fileId, format } = req.body;
-    const inputPath = (await fs.readdir('uploads')).find(f => f.startsWith(fileId));
-    const outputPath = path.join('uploads', `${fileId}_converted.${format}`);
+    const inputPath = (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+    const outputPath = path.join('Uploads', `${fileId}_converted.${format}`);
 
     try {
-        ffmpeg(path.join('uploads', inputPath))
+        ffmpeg(path.join('Uploads', inputPath))
             .toFormat(format)
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/${path.basename(outputPath)}` });
+                res.json({ url: `/uploads/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -180,9 +191,9 @@ app.post('/convert', async (req, res) => {
 app.post('/download-file', async (req, res) => {
     const { fileId, segment } = req.body;
     const filePath = segment
-        ? path.join('uploads', segment)
-        : (await fs.readdir('uploads')).find(f => f.startsWith(fileId));
-    res.json({ url: `/${path.basename(filePath)}` });
+        ? path.join('Uploads', segment)
+        : (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+    res.json({ url: `/uploads/${path.basename(filePath)}` });
 });
 
 // Limpar arquivos

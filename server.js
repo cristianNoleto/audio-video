@@ -78,6 +78,22 @@ app.use(rateLimit({
 }));
 app.use(express.json());
 
+// Validar arquivo baixado
+const validateDownloadedFile = async (filePath) => {
+    try {
+        const metadata = await new Promise((resolve, reject) => {
+            ffmpeg.ffprobe(filePath, (err, metadata) => {
+                if (err) return reject(err);
+                resolve(metadata);
+            });
+        });
+        return metadata.format && metadata.format.duration > 0;
+    } catch (err) {
+        console.error('Erro ao validar arquivo baixado:', err);
+        return false;
+    }
+};
+
 // Upload de arquivo
 app.post('/upload', upload.single('file'), async (req, res) => {
     try {
@@ -117,7 +133,8 @@ app.post('/download-social', async (req, res) => {
     }
 
     const id = uuidv4();
-    const outputPath = path.join(uploadsDir, `${id}.${format}`);
+    const tempPath = path.join(uploadsDir, `${id}.mp4`);
+    const outputPath = path.join(UploadsDir, `${id}.${format}`);
 
     try {
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -139,8 +156,15 @@ app.post('/download-social', async (req, res) => {
                 });
         } else {
             const dl = new DownloaderHelper(url, uploadsDir, { fileName: `${id}.mp4` });
-            dl.on('end', () => {
-                ffmpeg(path.join(uploadsDir, `${id}.mp4`))
+            dl.on('end', async () => {
+                // Validar o arquivo baixado
+                const isValid = await validateDownloadedFile(tempPath);
+                if (!isValid) {
+                    await fs.unlink(tempPath).catch(() => {});
+                    return res.status(400).json({ error: 'Arquivo baixado é inválido ou corrompido.' });
+                }
+
+                ffmpeg(tempPath)
                     .toFormat(format)
                     .save(outputPath)
                     .on('end', () => {
@@ -175,7 +199,7 @@ app.post('/enhance-audio', async (req, res) => {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
 
-    const outputPath = path.join(uploadsDir, `${fileId}_enhanced.mp3`);
+    const outputPath = path.join(UploadsDir, `${fileId}_enhanced.mp3`);
 
     try {
         ffmpeg(path.join(UploadsDir, inputPath))
@@ -201,7 +225,7 @@ app.post('/split-audio', async (req, res) => {
         return res.status(400).json({ error: 'ID do arquivo e duração são obrigatórios.' });
     }
 
-    const inputPath = (await fs.readdir(uploadsDir)).find(f => f.startsWith(fileId));
+    const inputPath = (await fs.readdir(UploadsDir)).find(f => f.startsWith(fileId));
     if (!inputPath) {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
@@ -255,7 +279,7 @@ app.post('/convert', async (req, res) => {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
 
-    const outputPath = path.join(UploadsDir, `${id}_converted.${format}`);
+    const outputPath = path.join(UploadsDir, `${fileId}_converted.${format}`);
 
     try {
         ffmpeg(path.join(UploadsDir, inputPath))

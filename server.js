@@ -15,6 +15,19 @@ const port = process.env.PORT || 3000;
 // Configurar FFmpeg
 ffmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
 
+// Servir arquivos estáticos da pasta public
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Servir arquivos da pasta uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Middleware para limitar requisições
+app.use(rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 100,
+}));
+app.use(express.json());
+
 // Limpar diretório de uploads na inicialização
 const clearUploads = async () => {
     const files = await fs.readdir('uploads');
@@ -24,13 +37,10 @@ const clearUploads = async () => {
 };
 clearUploads();
 
-// Middleware para limitar requisições
-app.use(rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 100,
-}));
-app.use(express.json());
-app.use(express.static('uploads'));
+// Rota para servir o index.html na raiz
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Upload de arquivo
 app.post('/upload', upload.single('file'), async (req, res) => {
@@ -66,7 +76,7 @@ app.post('/download-social', async (req, res) => {
                 .toFormat(format)
                 .save(outputPath)
                 .on('end', () => {
-                    res.json({ url: `/${path.basename(outputPath)}` });
+                    res.json({ url: `/uploads/${path.basename(outputPath)}` });
                 })
                 .on('error', err => {
                     res.status(400).json({ error: err.message });
@@ -78,7 +88,7 @@ app.post('/download-social', async (req, res) => {
                     .toFormat(format)
                     .save(outputPath)
                     .on('end', () => {
-                        res.json({ url: `/${path.basename(outputPath)}` });
+                        res.json({ url: `/uploads/${path.basename(outputPath)}` });
                     })
                     .on('error', err => {
                         res.status(400).json({ error: err.message });
@@ -103,7 +113,7 @@ app.post('/enhance-audio', async (req, res) => {
             .toFormat('mp3')
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/${path.basename(outputPath)}` });
+                res.json({ url: `/uploads/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -158,7 +168,7 @@ app.post('/convert', async (req, res) => {
             .toFormat(format)
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/${path.basename(outputPath)}` });
+                res.json({ url: `/uploads/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -174,7 +184,7 @@ app.post('/download-file', async (req, res) => {
     const filePath = segment
         ? path.join('uploads', segment)
         : (await fs.readdir('uploads')).find(f => f.startsWith(fileId));
-    res.json({ url: `/${path.basename(filePath)}` });
+    res.json({ url: `/uploads/${path.basename(filePath)}` });
 });
 
 // Limpar arquivos

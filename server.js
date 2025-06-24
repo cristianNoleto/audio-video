@@ -37,7 +37,11 @@ const upload = multer({
             'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/aac', 'audio/ogg',
             'audio/mp4', 'audio/x-ms-wma', 'video/mp4', 'video/x-msvideo', 'video/quicktime'
         ];
-        if (allowedTypes.includes(file.mimetype)) {
+        const allowedExtensions = [
+            '.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma', '.mp4', '.avi', '.mov'
+        ];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowedTypes.includes(file.mimetype) && allowedExtensions.includes(ext)) {
             cb(null, true);
         } else {
             cb(new Error('Formato de arquivo não suportado. Use MP3, WAV, FLAC, AAC, OGG, M4A, WMA, MP4, AVI ou MOV.'));
@@ -62,7 +66,7 @@ const clearUploads = async () => {
     try {
         const files = await fs.readdir(uploadsDir);
         for (const file of files) {
-            await fs.unlink(path.join(uploadsDir, file)).catch(() => {});
+            await fs.unlink(path.join(UploadsDir, file)).catch(() => {});
         }
         console.log('Pasta Uploads limpa.');
     } catch (err) {
@@ -102,11 +106,17 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         }
 
         const filePath = req.file.path;
+        console.log(`Processando arquivo: ${filePath}, MIME: ${req.file.mimetype}, Extensão: ${path.extname(req.file.originalname)}`);
+
+        // Validar arquivo com ffprobe
         const duration = await new Promise((resolve, reject) => {
             ffmpeg.ffprobe(filePath, (err, metadata) => {
                 if (err) {
                     console.error('Erro no ffprobe:', err);
-                    return reject(new Error(`Erro ao processar arquivo: ${err.message}`));
+                    return reject(new Error(`Arquivo inválido ou corrompido: ${err.message}`));
+                }
+                if (!metadata.format || !metadata.format.duration) {
+                    return reject(new Error('Arquivo não contém metadados válidos.'));
                 }
                 const duration = metadata.format.duration;
                 if (duration > 3600) {
@@ -121,6 +131,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         await fs.rename(filePath, newPath);
         res.json({ id, duration });
     } catch (err) {
+        console.error('Erro no upload:', err);
         res.status(400).json({ error: err.message });
     }
 });
@@ -133,7 +144,7 @@ app.post('/download-social', async (req, res) => {
     }
 
     const id = uuidv4();
-    const tempPath = path.join(uploadsDir, `${id}.mp4`);
+    const tempPath = path.join(UploadsDir, `${id}.mp4`);
     const outputPath = path.join(UploadsDir, `${id}.${format}`);
 
     try {

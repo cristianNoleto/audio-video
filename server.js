@@ -9,17 +9,28 @@ const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
-const port = process.env.PORT || 3000;
+
+// Configurar trust proxy para lidar com X-Forwarded-For
+app.set('trust proxy', 1);
 
 // Configurar FFmpeg
 ffmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
 
-// Servir arquivos estáticos da pasta public
-app.use(express.static(path.join(__dirname, 'public')));
+// Configurar multer para uploads
+const upload = multer({ dest: 'uploads/' });
 
-// Servir arquivos da pasta uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Limpar diretório de uploads na inicialização
+const clearUploads = async () => {
+    try {
+        const files = await fs.readdir('uploads');
+        for (const file of files) {
+            await fs.unlink(path.join('uploads', file)).catch(() => {});
+        }
+    } catch (err) {
+        console.error('Erro ao limpar uploads:', err);
+    }
+};
+clearUploads();
 
 // Middleware para limitar requisições
 app.use(rateLimit({
@@ -27,20 +38,7 @@ app.use(rateLimit({
     max: 100,
 }));
 app.use(express.json());
-
-// Limpar diretório de uploads na inicialização
-const clearUploads = async () => {
-    const files = await fs.readdir('uploads');
-    for (const file of files) {
-        await fs.unlink(path.join('uploads', file)).catch(() => {});
-    }
-};
-clearUploads();
-
-// Rota para servir o index.html na raiz
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.use(express.static('uploads'));
 
 // Upload de arquivo
 app.post('/upload', upload.single('file'), async (req, res) => {
@@ -76,7 +74,7 @@ app.post('/download-social', async (req, res) => {
                 .toFormat(format)
                 .save(outputPath)
                 .on('end', () => {
-                    res.json({ url: `/uploads/${path.basename(outputPath)}` });
+                    res.json({ url: `/${path.basename(outputPath)}` });
                 })
                 .on('error', err => {
                     res.status(400).json({ error: err.message });
@@ -88,7 +86,7 @@ app.post('/download-social', async (req, res) => {
                     .toFormat(format)
                     .save(outputPath)
                     .on('end', () => {
-                        res.json({ url: `/uploads/${path.basename(outputPath)}` });
+                        res.json({ url: `/${path.basename(outputPath)}` });
                     })
                     .on('error', err => {
                         res.status(400).json({ error: err.message });
@@ -113,7 +111,7 @@ app.post('/enhance-audio', async (req, res) => {
             .toFormat('mp3')
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/uploads/${path.basename(outputPath)}` });
+                res.json({ url: `/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -168,7 +166,7 @@ app.post('/convert', async (req, res) => {
             .toFormat(format)
             .save(outputPath)
             .on('end', () => {
-                res.json({ url: `/uploads/${path.basename(outputPath)}` });
+                res.json({ url: `/${path.basename(outputPath)}` });
             })
             .on('error', err => {
                 res.status(400).json({ error: err.message });
@@ -184,7 +182,7 @@ app.post('/download-file', async (req, res) => {
     const filePath = segment
         ? path.join('uploads', segment)
         : (await fs.readdir('uploads')).find(f => f.startsWith(fileId));
-    res.json({ url: `/uploads/${path.basename(filePath)}` });
+    res.json({ url: `/${path.basename(filePath)}` });
 });
 
 // Limpar arquivos
@@ -193,6 +191,7 @@ app.post('/clear-files', async (req, res) => {
     res.json({ status: 'ok' });
 });
 
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
     console.log(`Servidor rodando na porta ${port}`);
 });

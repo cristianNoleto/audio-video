@@ -17,9 +17,21 @@ app.set('trust proxy', 1);
 // Configurar FFmpeg
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
+// Criar pasta Uploads se não existir
+const uploadsDir = path.join(__dirname, 'Uploads');
+const ensureUploadsDir = async () => {
+    try {
+        await fs.mkdir(uploadsDir, { recursive: true });
+        console.log('Pasta Uploads criada ou já existe.');
+    } catch (err) {
+        console.error('Erro ao criar pasta Uploads:', err);
+    }
+};
+ensureUploadsDir();
+
 // Configurar multer para uploads com validação de tipo
 const upload = multer({
-    dest: 'uploads/',
+    dest: uploadsDir,
     fileFilter: (req, file, cb) => {
         const allowedTypes = [
             'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/aac', 'audio/ogg',
@@ -38,7 +50,7 @@ const upload = multer({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Servir arquivos da pasta uploads
-app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
 // Rota para a página inicial
 app.get('/', (req, res) => {
@@ -48,10 +60,11 @@ app.get('/', (req, res) => {
 // Limpar diretório de uploads na inicialização
 const clearUploads = async () => {
     try {
-        const files = await fs.readdir('Uploads');
+        const files = await fs.readdir(uploadsDir);
         for (const file of files) {
-            await fs.unlink(path.join('Uploads', file)).catch(() => {});
+            await fs.unlink(path.join(uploadsDir, file)).catch(() => {});
         }
+        console.log('Pasta Uploads limpa.');
     } catch (err) {
         console.error('Erro ao limpar uploads:', err);
     }
@@ -88,7 +101,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         });
 
         const id = uuidv4();
-        const newPath = path.join('Uploads', `${id}_${req.file.originalname}`);
+        const newPath = path.join(uploadsDir, `${id}_${req.file.originalname}`);
         await fs.rename(filePath, newPath);
         res.json({ id, duration });
     } catch (err) {
@@ -104,7 +117,7 @@ app.post('/download-social', async (req, res) => {
     }
 
     const id = uuidv4();
-    const outputPath = path.join('Uploads', `${id}.${format}`);
+    const outputPath = path.join(uploadsDir, `${id}.${format}`);
 
     try {
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -125,9 +138,9 @@ app.post('/download-social', async (req, res) => {
                     res.status(400).json({ error: `Erro ao processar vídeo: ${err.message}` });
                 });
         } else {
-            const dl = new DownloaderHelper(url, 'Uploads', { fileName: `${id}.mp4` });
+            const dl = new DownloaderHelper(url, uploadsDir, { fileName: `${id}.mp4` });
             dl.on('end', () => {
-                ffmpeg(path.join('Uploads', `${id}.mp4`))
+                ffmpeg(path.join(uploadsDir, `${id}.mp4`))
                     .toFormat(format)
                     .save(outputPath)
                     .on('end', () => {
@@ -157,15 +170,15 @@ app.post('/enhance-audio', async (req, res) => {
         return res.status(400).json({ error: 'ID do arquivo é obrigatório.' });
     }
 
-    const inputPath = (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+    const inputPath = (await fs.readdir(uploadsDir)).find(f => f.startsWith(fileId));
     if (!inputPath) {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
 
-    const outputPath = path.join('Uploads', `${fileId}_enhanced.mp3`);
+    const outputPath = path.join(uploadsDir, `${fileId}_enhanced.mp3`);
 
     try {
-        ffmpeg(path.join('Uploads', inputPath))
+        ffmpeg(path.join(UploadsDir, inputPath))
             .audioFilter('afftdn') // Redução de ruído
             .toFormat('mp3')
             .save(outputPath)
@@ -188,7 +201,7 @@ app.post('/split-audio', async (req, res) => {
         return res.status(400).json({ error: 'ID do arquivo e duração são obrigatórios.' });
     }
 
-    const inputPath = (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+    const inputPath = (await fs.readdir(uploadsDir)).find(f => f.startsWith(fileId));
     if (!inputPath) {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
@@ -197,7 +210,7 @@ app.post('/split-audio', async (req, res) => {
 
     try {
         const metadata = await new Promise((resolve, reject) => {
-            ffmpeg.ffprobe(path.join('Uploads', inputPath), (err, metadata) => {
+            ffmpeg.ffprobe(path.join(UploadsDir, inputPath), (err, metadata) => {
                 if (err) {
                     console.error('Erro no ffprobe (split):', err);
                     return reject(new Error(`Erro ao processar arquivo: ${err.message}`));
@@ -209,9 +222,9 @@ app.post('/split-audio', async (req, res) => {
         const totalDuration = metadata.format.duration;
         for (let i = 0; i < totalDuration; i += duration) {
             const segmentId = uuidv4();
-            const segmentPath = path.join('Uploads', `${fileId}_segment_${i}.mp3`);
+            const segmentPath = path.join(UploadsDir, `${fileId}_segment_${i}.mp3`);
             await new Promise((resolve, reject) => {
-                ffmpeg(path.join('Uploads', inputPath))
+                ffmpeg(path.join(UploadsDir, inputPath))
                     .setStartTime(i)
                     .setDuration(duration)
                     .toFormat('mp3')
@@ -237,15 +250,15 @@ app.post('/convert', async (req, res) => {
         return res.status(400).json({ error: 'ID do arquivo e formato são obrigatórios.' });
     }
 
-    const inputPath = (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+    const inputPath = (await fs.readdir(UploadsDir)).find(f => f.startsWith(fileId));
     if (!inputPath) {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
 
-    const outputPath = path.join('Uploads', `${fileId}_converted.${format}`);
+    const outputPath = path.join(UploadsDir, `${id}_converted.${format}`);
 
     try {
-        ffmpeg(path.join('Uploads', inputPath))
+        ffmpeg(path.join(UploadsDir, inputPath))
             .toFormat(format)
             .save(outputPath)
             .on('end', () => {
@@ -268,8 +281,8 @@ app.post('/download-file', async (req, res) => {
     }
 
     const filePath = segment
-        ? path.join('Uploads', segment)
-        : (await fs.readdir('Uploads')).find(f => f.startsWith(fileId));
+        ? path.join(UploadsDir, segment)
+        : (await fs.readdir(UploadsDir)).find(f => f.startsWith(fileId));
     if (!filePath) {
         return res.status(404).json({ error: 'Arquivo não encontrado.' });
     }
